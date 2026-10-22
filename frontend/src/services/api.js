@@ -140,6 +140,13 @@ export async function startBattle(challengeId) {
   }, true);
 }
 
+export async function resetBattleTimer(battleId = null, hours = 8) {
+  return apiRequest('/api/battles/reset-timer', {
+    method: 'POST',
+    body: JSON.stringify({ battle_id: battleId, hours })
+  }, true);
+}
+
 export async function submitChallenge({ battle_id, github_url, repo_url, live_url }) {
   const finalRepoUrl = repo_url || github_url;
   return apiRequest('/api/submissions', {
@@ -207,6 +214,7 @@ export default {
   getChallenges,
   getChallengeBySlug,
   startBattle,
+  resetBattleTimer,
   submitChallenge,
   runEvaluation,
   getTeamResults,

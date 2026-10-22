@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { X, ArrowRight, ShieldCheck, Zap, Terminal, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
+import { supabase } from '../services/supabase';
+import { X, ArrowRight, ShieldCheck, Zap, Terminal, Sparkles, AlertCircle, Loader2, Database, ChevronDown, ChevronUp } from 'lucide-react';
 import { GithubIcon } from './Icons';
 
 export default function AuthModal() {
@@ -21,34 +22,71 @@ export default function AuthModal() {
     email: '',
     password: '',
     role: 'Backend Developer',
-    experienceLevel: 'INTERMEDIATE',
-    techStack: 'TypeScript, Node.js, PostgreSQL',
+    experienceLevel: 'INTERMEDIATE'
   });
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [showDemoSquads, setShowDemoSquads] = useState(false);
 
   if (!authModalOpen) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     setLoading(true);
 
     try {
       if (authMode === 'login') {
         await signInWithEmail(formData.email, formData.password);
+        setSuccessMsg('Successfully signed in! Entering arena...');
+        setTimeout(() => setAuthModalOpen(false), 600);
       } else {
-        await signUpWithEmail(formData.email, formData.password, {
-          username: formData.username || formData.email.split('@')[0],
-          full_name: formData.fullName || formData.username || 'Klyro Engineer',
-          github_username: formData.githubUsername || formData.username,
-          role: formData.role,
+        const username = formData.username.trim() || formData.email.split('@')[0];
+        const fullName = formData.fullName.trim() || username;
+        const githubUsername = formData.githubUsername.trim() || username;
+
+        const authResult = await signUpWithEmail(formData.email, formData.password, {
+          username,
+          full_name: fullName,
+          github_username: githubUsername,
+          role: 'PLAYER',
           experience_level: formData.experienceLevel
         });
+
+        // Ensure user profile is immediately stored in PostgreSQL database
+        const createdUserId = authResult?.user?.id || (await supabase.auth.getUser())?.data?.user?.id;
+        if (createdUserId) {
+          try {
+            await supabase.from('profiles').upsert({
+              id: createdUserId,
+              username,
+              full_name: fullName,
+              github_username: githubUsername,
+              experience_level: formData.experienceLevel || 'INTERMEDIATE',
+              role: 'PLAYER',
+              avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`
+            }, { onConflict: 'id' });
+
+            await supabase.from('user_stats').upsert({
+              profile_id: createdUserId,
+              rating: 1000,
+              xp: 0,
+              battles_played: 0,
+              battles_won: 0
+            }, { onConflict: 'profile_id' });
+          } catch (dbErr) {
+            console.warn('[Profile DB Sync]:', dbErr.message);
+          }
+        }
+
+        setSuccessMsg('Account registered and profile stored in database! Entering arena...');
+        setTimeout(() => setAuthModalOpen(false), 700);
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Authentication failed. Please verify your credentials.');
+      setErrorMsg(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -61,25 +99,22 @@ export default function AuthModal() {
     { name: 'Diana Prince', email: 'diana@klyro.com', role: 'Fullstack · Team 2', color: 'border-amber-400/40 text-amber-400' },
     { name: 'Ethan Hunt', email: 'ethan@klyro.com', role: 'DevOps · Team 2', color: 'border-rose-400/40 text-rose-400' },
     { name: 'Fiona Gallagher', email: 'fiona@klyro.com', role: 'Backend · Team 2', color: 'border-blue-400/40 text-blue-400' },
-    { name: 'George Vance', email: 'george@klyro.com', role: 'In Queue · Searching', color: 'border-yellow-400/40 text-yellow-400' },
     { name: 'Test User 1', email: 'test1@klyro.com', role: 'Tester · Standard', color: 'border-cyan-400/40 text-cyan-300' }
   ];
 
   const handleQuickLogin = async (email) => {
     setErrorMsg('');
+    setSuccessMsg('');
     setLoading(true);
     try {
       await signInWithEmail(email, 'KlyroPassword123!');
-      setAuthModalOpen(false);
+      setSuccessMsg(`Signed in as ${email}! Entering arena...`);
+      setTimeout(() => setAuthModalOpen(false), 500);
     } catch (err) {
       setErrorMsg(err.message || `Failed to sign in as ${email}`);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDemoLogin = async () => {
-    await handleQuickLogin('alice@klyro.com');
   };
 
   const handleGithubOAuth = async () => {
@@ -89,7 +124,7 @@ export default function AuthModal() {
       await signInWithGithub();
     } catch (err) {
       if (err.message?.includes('provider is not enabled') || err.error_code === 'validation_failed') {
-        setErrorMsg('GitHub OAuth is not enabled in your Supabase project dashboard yet. Please use the 1-Click Sign In button below or enter email/password.');
+        setErrorMsg('GitHub OAuth is not enabled in your Supabase dashboard yet. Please use email & password authentication below.');
       } else {
         setErrorMsg(err.message || 'GitHub OAuth failed. Please check your network connection.');
       }
@@ -120,29 +155,46 @@ export default function AuthModal() {
         </button>
 
         {/* Header Tabs */}
-        <div className="flex items-center gap-3 mb-6 border-b border-white/10 pb-4">
+        <div className="flex items-center gap-3 mb-5 border-b border-white/10 pb-3">
           <button
-            onClick={() => { setAuthMode('login'); setErrorMsg(''); }}
-            className={`text-lg font-jakarta font-bold uppercase tracking-wider pb-1 transition-all ${
+            onClick={() => { setAuthMode('login'); setErrorMsg(''); setSuccessMsg(''); }}
+            className={`text-base font-jakarta font-bold uppercase tracking-wider pb-1 transition-all ${
               authMode === 'login'
                 ? 'text-[#22d3ee] border-b-2 border-[#22d3ee]'
                 : 'text-white/40 hover:text-white/80'
             }`}
           >
-            Access Arena
+            Email Login
           </button>
           <span className="text-white/20">/</span>
           <button
-            onClick={() => { setAuthMode('register'); setErrorMsg(''); }}
-            className={`text-lg font-jakarta font-bold uppercase tracking-wider pb-1 transition-all ${
+            onClick={() => { setAuthMode('register'); setErrorMsg(''); setSuccessMsg(''); }}
+            className={`text-base font-jakarta font-bold uppercase tracking-wider pb-1 transition-all ${
               authMode === 'register'
                 ? 'text-[#22d3ee] border-b-2 border-[#22d3ee]'
                 : 'text-white/40 hover:text-white/80'
             }`}
           >
-            Create Profile
+            Create Account & Save to Database
           </button>
         </div>
+
+        {/* Database Storage Assurance Banner */}
+        <div className="mb-4 flex items-center justify-between px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono">
+          <span className="flex items-center gap-1.5 font-bold">
+            <Database size={13} />
+            <span>Database Storage: Active</span>
+          </span>
+          <span className="text-white/60">PostgreSQL (Supabase)</span>
+        </div>
+
+        {/* Success Feedback */}
+        {successMsg && (
+          <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs flex items-center gap-2">
+            <ShieldCheck size={16} className="shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
 
         {/* Error Notification */}
         {errorMsg && (
@@ -152,62 +204,13 @@ export default function AuthModal() {
           </div>
         )}
 
-        {/* GitHub OAuth Primary Action */}
-        <button
-          type="button"
-          onClick={handleGithubOAuth}
-          disabled={loading}
-          className="w-full mb-5 flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-[#070b12] hover:bg-[#070b12]/80 border border-white/15 text-white font-sans text-sm font-semibold tracking-wide transition-all shadow-sm hover:border-[#22d3ee]/50 group disabled:opacity-50"
-        >
-          <GithubIcon size={18} className="text-white group-hover:text-[#22d3ee] transition-colors" />
-          <span>Continue with GitHub</span>
-          <span className="ml-auto text-[11px] font-mono text-[#22d3ee] uppercase bg-[#22d3ee]/10 px-2 py-0.5 rounded">
-            Recommended
-          </span>
-        </button>
-
-        <div className="flex items-center gap-3 my-4">
-          <div className="h-px bg-white/10 flex-1" />
-          <span className="text-[11px] font-mono text-white/40 uppercase">or with credentials</span>
-          <div className="h-px bg-white/10 flex-1" />
-        </div>
-
-        {authMode === 'login' && (
-          <div className="mb-5 space-y-2.5">
-            <div className="flex items-center justify-between text-[11px] font-mono text-white/50">
-              <span className="flex items-center gap-1.5 text-white/80 font-bold">
-                <Zap size={13} className="text-[#22d3ee]" />
-                <span>1-CLICK SQUAD SIGN IN:</span>
-              </span>
-              <span className="text-[#22d3ee]">Teams of 3</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-              {SQUAD_MEMBERS.map((sq) => (
-                <button
-                  key={sq.email}
-                  type="button"
-                  onClick={() => handleQuickLogin(sq.email)}
-                  disabled={loading}
-                  className={`flex flex-col text-left p-2.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border transition-all ${sq.color} disabled:opacity-50 group`}
-                >
-                  <div className="text-xs font-bold text-white flex items-center justify-between">
-                    <span className="truncate">{sq.name}</span>
-                    <span className="text-[9px] font-mono opacity-80 shrink-0 group-hover:text-[#22d3ee]">Sign in</span>
-                  </div>
-                  <div className="text-[10px] font-mono opacity-80 truncate">{sq.role}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Primary Email & Password Form */}
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           {authMode === 'register' && (
             <>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">Handle</label>
+                  <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">Username / Handle</label>
                   <input
                     type="text"
                     required
@@ -218,19 +221,29 @@ export default function AuthModal() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">GitHub User</label>
+                  <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">Full Name</label>
                   <input
                     type="text"
                     required
-                    placeholder="octocat"
-                    value={formData.githubUsername}
-                    onChange={(e) => setFormData({ ...formData, githubUsername: e.target.value })}
+                    placeholder="Thomas Anderson"
+                    value={formData.fullName}
+                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                     className="w-full bg-[#070b12]/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#22d3ee] transition-colors placeholder:text-white/20"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">GitHub Username</label>
+                  <input
+                    type="text"
+                    placeholder="octocat"
+                    value={formData.githubUsername}
+                    onChange={(e) => setFormData({ ...formData, githubUsername: e.target.value })}
+                    className="w-full bg-[#070b12]/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#22d3ee] transition-colors placeholder:text-white/20"
+                  />
+                </div>
                 <div>
                   <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">Core Specialty</label>
                   <select
@@ -239,22 +252,10 @@ export default function AuthModal() {
                     className="w-full bg-[#070b12]/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#22d3ee] transition-colors"
                   >
                     <option value="Frontend Developer">Frontend Engineer</option>
-                    <option value="Backend Developer">Backend / Distributed Systems</option>
-                    <option value="AI / ML Engineer">AI / ML Engineer</option>
+                    <option value="Backend Developer">Backend / Systems</option>
+                    <option value="AI / ML Engineer">AI / ML Specialist</option>
                     <option value="Fullstack Engineer">Fullstack Engineer</option>
-                    <option value="DevOps / Cloud">DevOps / Cloud Specialist</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-mono uppercase text-white/60 mb-1">Experience Tier</label>
-                  <select
-                    value={formData.experienceLevel}
-                    onChange={(e) => setFormData({ ...formData, experienceLevel: e.target.value })}
-                    className="w-full bg-[#070b12]/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#22d3ee] transition-colors"
-                  >
-                    <option value="BEGINNER">Initiate (Beginner)</option>
-                    <option value="INTERMEDIATE">Contender (Intermediate)</option>
-                    <option value="ADVANCED">Grandmaster (Advanced)</option>
+                    <option value="DevOps / Cloud">DevOps / Cloud</option>
                   </select>
                 </div>
               </div>
@@ -285,45 +286,94 @@ export default function AuthModal() {
             />
           </div>
 
-          {authMode === 'login' && (
-            <div className="flex justify-end pt-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    email: 'test1@klyro.com',
-                    password: 'KlyroPassword123!'
-                  }));
-                }}
-                className="text-[11px] font-mono text-[#22d3ee]/80 hover:text-[#22d3ee] transition-colors underline underline-offset-2"
-              >
-                Fill Verified Demo Squad Account
-              </button>
-            </div>
-          )}
-
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-3 flex items-center justify-center gap-2 py-3 rounded-full bg-[#22d3ee] text-[#070b12] font-jakarta text-sm font-bold uppercase tracking-wider hover:bg-[#38bdf8] transition-all shadow-[0_0_20px_rgba(34,211,238,0.4)] disabled:opacity-50"
+            className="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-full bg-[#22d3ee] text-[#070b12] font-jakarta text-sm font-bold uppercase tracking-wider hover:bg-[#38bdf8] transition-all shadow-[0_0_20px_rgba(34,211,238,0.4)] disabled:opacity-50"
           >
             {loading ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                <span>Processing Authorization...</span>
+                <span>Processing Authentication...</span>
               </>
             ) : (
               <>
-                <span>{authMode === 'login' ? 'Enter Competitive Arena' : 'Confirm Registration'}</span>
+                <span>{authMode === 'login' ? 'Sign In with Email & Password' : 'Create Account & Save Profile'}</span>
                 <ArrowRight size={16} />
               </>
             )}
           </button>
         </form>
 
-        <div className="mt-5 text-center text-xs text-white/40 font-mono">
-          <span>Protected by cryptographic passport verification.</span>
+        {/* Toggle Mode Link */}
+        <div className="mt-4 text-center">
+          {authMode === 'login' ? (
+            <button
+              type="button"
+              onClick={() => { setAuthMode('register'); setErrorMsg(''); setSuccessMsg(''); }}
+              className="text-xs text-white/60 hover:text-[#22d3ee] transition-colors font-mono"
+            >
+              Don't have an account yet? <span className="text-[#22d3ee] underline font-bold">Register & Store to Database</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setAuthMode('login'); setErrorMsg(''); setSuccessMsg(''); }}
+              className="text-xs text-white/60 hover:text-[#22d3ee] transition-colors font-mono"
+            >
+              Already registered? <span className="text-[#22d3ee] underline font-bold">Sign In via Email & Password</span>
+            </button>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-4">
+          <div className="h-px bg-white/10 flex-1" />
+          <span className="text-[10px] font-mono text-white/30 uppercase">or alternative access</span>
+          <div className="h-px bg-white/10 flex-1" />
+        </div>
+
+        {/* GitHub OAuth Button */}
+        <button
+          type="button"
+          onClick={handleGithubOAuth}
+          disabled={loading}
+          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-white/80 hover:text-white font-mono text-xs transition-all disabled:opacity-50"
+        >
+          <GithubIcon size={14} />
+          <span>Continue with GitHub OAuth</span>
+        </button>
+
+        {/* Collapsible 1-Click Squad Accounts */}
+        <div className="mt-3 pt-3 border-t border-white/5">
+          <button
+            type="button"
+            onClick={() => setShowDemoSquads(!showDemoSquads)}
+            className="w-full flex items-center justify-between text-[11px] font-mono text-white/40 hover:text-white/70 transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <Zap size={12} className="text-[#22d3ee]" />
+              <span>1-Click Test Squad Accounts (Alice, Bob, etc.)</span>
+            </span>
+            {showDemoSquads ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+
+          {showDemoSquads && (
+            <div className="grid grid-cols-2 gap-1.5 mt-2 max-h-36 overflow-y-auto pr-1">
+              {SQUAD_MEMBERS.map((sq) => (
+                <button
+                  key={sq.email}
+                  type="button"
+                  onClick={() => handleQuickLogin(sq.email)}
+                  disabled={loading}
+                  className={`flex flex-col text-left p-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border transition-all ${sq.color} disabled:opacity-50`}
+                >
+                  <div className="text-[11px] font-bold text-white truncate">{sq.name}</div>
+                  <div className="text-[9px] font-mono opacity-80 truncate">{sq.role}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

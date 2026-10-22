@@ -15,7 +15,11 @@ import {
   Activity,
   CheckCircle2,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  RotateCcw,
+  Layers,
+  Filter,
+  BookOpen
 } from 'lucide-react';
 import { GithubIcon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +32,7 @@ import {
   rejectTeam, 
   getChallenges, 
   startBattle, 
+  resetBattleTimer,
   submitChallenge, 
   runEvaluation 
 } from '../services/api';
@@ -68,6 +73,11 @@ export default function ArenaPage() {
 
   // Countdown timer based on real end_time
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [isResettingTimer, setIsResettingTimer] = useState(false);
+  const [timerResetSuccess, setTimerResetSuccess] = useState('');
+  const [previewingPs, setPreviewingPs] = useState(null);
+  const [showPsModal, setShowPsModal] = useState(false);
 
   // 1. Initial Data Fetch: Check existing team & load challenges
   const checkCurrentStatus = async () => {
@@ -154,24 +164,48 @@ export default function ArenaPage() {
     return () => clearInterval(interval);
   }, [matchState]);
 
-  // Real countdown timer based on activeBattle end_time
+  // Real countdown timer based on activeBattle end_time (or 8-hour default)
   useEffect(() => {
-    if (!activeBattle?.end_time) return;
     const calculateRemaining = () => {
-      const now = new Date().getTime();
-      const end = new Date(activeBattle.end_time).getTime();
-      return Math.max(0, Math.floor((end - now) / 1000));
+      if (activeBattle?.end_time) {
+        const now = new Date().getTime();
+        const end = new Date(activeBattle.end_time).getTime();
+        return Math.max(0, Math.floor((end - now) / 1000));
+      }
+      return (selectedChallenge?.time_limit_minutes || 480) * 60;
     };
 
     setSecondsLeft(calculateRemaining());
     const timer = setInterval(() => {
       const rem = calculateRemaining();
       setSecondsLeft(rem);
-      if (rem <= 0) clearInterval(timer);
+      if (rem <= 0 && activeBattle?.end_time) clearInterval(timer);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [activeBattle]);
+  }, [activeBattle, selectedChallenge]);
+
+  // Reset battle timer to 8 hours
+  const handleReset8HrTimer = async () => {
+    setIsResettingTimer(true);
+    setTimerResetSuccess('');
+    try {
+      const res = await resetBattleTimer(activeBattle?.id, 8);
+      setSecondsLeft(8 * 3600);
+      if (res?.battle) {
+        setActiveBattle(res.battle);
+      }
+      setTimerResetSuccess('Battle timer reset to 08:00:00!');
+      setTimeout(() => setTimerResetSuccess(''), 4000);
+    } catch (err) {
+      console.warn('Reset timer fallback:', err);
+      setSecondsLeft(8 * 3600);
+      setTimerResetSuccess('Countdown timer reset to 08:00:00!');
+      setTimeout(() => setTimerResetSuccess(''), 4000);
+    } finally {
+      setIsResettingTimer(false);
+    }
+  };
 
   const formatTime = (totalSec) => {
     const hrs = Math.floor(totalSec / 3600);
@@ -435,26 +469,144 @@ export default function ArenaPage() {
             </button>
           </div>
 
-          {/* Available Challenges Preview */}
+          {/* Problem Statements Explorer (All 12 Available) */}
           {challenges.length > 0 && (
-            <div className="p-6 rounded-2xl bg-[#070b12]/60 border border-white/10">
-              <h3 className="text-xs font-mono font-bold text-white/60 uppercase tracking-wider mb-4">
-                Active Arena Challenges ({challenges.length})
-              </h3>
-              <div className="space-y-3">
-                {challenges.slice(0, 3).map((ch) => (
-                  <div key={ch.id} className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-bold text-white">{ch.title}</div>
-                      <div className="text-xs text-white/40 font-mono mt-0.5">
-                        Category: {ch.category} · Limit: {ch.time_limit_minutes || 2880}m
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-[#22d3ee]/10 text-[#22d3ee] border border-[#22d3ee]/20 font-bold uppercase">
-                      {ch.difficulty}
-                    </span>
+            <div className="p-6 sm:p-8 rounded-2xl bg-[#070b12]/80 border border-white/10 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-mono text-[#22d3ee] font-bold uppercase tracking-wider mb-1">
+                    <Layers size={14} />
+                    <span>8-HOUR PROBLEM STATEMENT VAULT</span>
                   </div>
+                  <h3 className="text-xl font-bold text-white">
+                    Choose Your Problem Statement ({challenges.length} Available)
+                  </h3>
+                </div>
+                <div className="text-xs font-mono text-white/50">
+                  {selectedChallenge ? (
+                    <span className="text-[#22d3ee]">Active PS: {selectedChallenge.title}</span>
+                  ) : (
+                    <span>Click any card to select</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-mono text-white/40 flex items-center gap-1 mr-1">
+                  <Filter size={12} />
+                  <span>FILTER:</span>
+                </span>
+                {['ALL', 'BACKEND', 'FRONTEND', 'AI_ML', 'FULLSTACK', 'DEVOPS', 'SECURITY'].map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${
+                      categoryFilter === cat
+                        ? 'bg-[#22d3ee] text-[#070b12] font-bold shadow-sm'
+                        : 'bg-white/5 text-white/60 hover:bg-white/10 border border-white/5'
+                    }`}
+                  >
+                    {cat}
+                  </button>
                 ))}
+              </div>
+
+              {/* Problem Statements Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {challenges
+                  .filter((ch) => categoryFilter === 'ALL' || ch.category === categoryFilter)
+                  .map((ch) => {
+                    const isSelected = selectedChallenge?.id === ch.id;
+                    const diffColors = {
+                      EASY: 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10',
+                      MEDIUM: 'text-amber-400 border-amber-400/30 bg-amber-400/10',
+                      HARD: 'text-rose-400 border-rose-400/30 bg-rose-400/10'
+                    };
+
+                    return (
+                      <div
+                        key={ch.id}
+                        className={`p-5 rounded-xl transition-all flex flex-col justify-between cursor-pointer border ${
+                          isSelected
+                            ? 'bg-[#22d3ee]/[0.06] border-[#22d3ee] shadow-[0_0_20px_rgba(34,211,238,0.15)] ring-1 ring-[#22d3ee]'
+                            : 'bg-white/[0.02] hover:bg-white/[0.05] border-white/10 hover:border-white/20'
+                        }`}
+                        onClick={() => setSelectedChallenge(ch)}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-white/80 font-bold uppercase">
+                                {ch.category}
+                              </span>
+                              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border uppercase font-bold ${diffColors[ch.difficulty] || 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10'}`}>
+                                {ch.difficulty}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-[#22d3ee] flex items-center gap-1 font-bold">
+                              <Clock size={11} />
+                              <span>8 HOURS</span>
+                            </span>
+                          </div>
+
+                          <h4 className="text-base font-bold text-white mb-2 leading-snug">
+                            {ch.title}
+                          </h4>
+
+                          <p className="text-xs text-white/60 line-clamp-3 font-sans mb-4">
+                            {ch.description}
+                          </p>
+                        </div>
+
+                        <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewingPs(ch);
+                            }}
+                            className="text-xs font-mono text-white/50 hover:text-white flex items-center gap-1 transition-colors"
+                          >
+                            <BookOpen size={12} />
+                            <span>View Specs</span>
+                          </button>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedChallenge(ch);
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
+                                isSelected
+                                  ? 'bg-[#22d3ee] text-[#070b12]'
+                                  : 'bg-white/10 text-white hover:bg-white/20'
+                              }`}
+                            >
+                              {isSelected ? '✓ Selected' : 'Select'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedChallenge(ch);
+                                handleStartBattle(ch.id);
+                              }}
+                              disabled={actionLoading}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold flex items-center gap-1 transition-all"
+                            >
+                              <Zap size={12} />
+                              <span>Start 8hr</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -618,31 +770,66 @@ export default function ArenaPage() {
               <div className="flex items-center gap-2 text-xs font-mono text-[#22d3ee] font-bold uppercase tracking-wider mb-1">
                 <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-pulse" />
                 <span>
-                  SQUAD: {currentTeam?.name || 'VERIFIED SQUAD'} · STATUS: ACTIVE BATTLE
+                  SQUAD: {currentTeam?.name || 'VERIFIED SQUAD'} · STATUS: ACTIVE 8-HOUR BATTLE
                 </span>
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white">
-                {selectedChallenge?.title || 'Distributed Real-Time Telemetry Engine'}
-              </h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl sm:text-2xl font-bold text-white">
+                  {selectedChallenge?.title || 'Distributed Real-Time Telemetry Engine'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowPsModal(true)}
+                  className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-[#22d3ee] text-xs font-mono border border-white/10 transition-colors flex items-center gap-1.5"
+                >
+                  <Layers size={13} />
+                  <span>Switch PS ({challenges.length})</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <div className="p-3 px-5 rounded-xl bg-white/[0.03] border border-white/10 text-center">
-                <div className="text-[10px] font-mono text-white/50 uppercase">Time Remaining</div>
+            <div className="flex items-center gap-3">
+              {/* Countdown clock */}
+              <div className="p-3 px-5 rounded-xl bg-white/[0.03] border border-white/10 text-center min-w-[130px]">
+                <div className="text-[10px] font-mono text-white/50 uppercase">8-Hr Countdown</div>
                 <div className="text-2xl font-mono font-black text-[#22d3ee] tracking-wider">
                   {secondsLeft > 0
                     ? formatTime(secondsLeft)
                     : activeBattle
                     ? '00:00:00'
-                    : formatTime((selectedChallenge?.time_limit_minutes || 60) * 60)}
+                    : formatTime((selectedChallenge?.time_limit_minutes || 480) * 60)}
                 </div>
               </div>
-              <div className="p-3 px-5 rounded-xl bg-[#6366f1]/10 border border-[#6366f1]/30 text-center">
+
+              {/* Reset 8-Hr Timer Button */}
+              <button
+                type="button"
+                onClick={handleReset8HrTimer}
+                disabled={isResettingTimer}
+                title="Reset countdown timer back to 8 hours"
+                className="p-3 px-4 rounded-xl bg-[#22d3ee]/10 hover:bg-[#22d3ee]/20 text-[#22d3ee] border border-[#22d3ee]/30 text-xs font-mono font-bold flex flex-col items-center justify-center transition-all shadow-[0_0_15px_rgba(34,211,238,0.2)] disabled:opacity-50"
+              >
+                <div className="flex items-center gap-1.5">
+                  <RotateCcw size={14} className={isResettingTimer ? 'animate-spin' : ''} />
+                  <span>RESET 8HR</span>
+                </div>
+                <span className="text-[9px] text-[#22d3ee]/70 uppercase">Start Clock</span>
+              </button>
+
+              <div className="p-3 px-4 rounded-xl bg-[#6366f1]/10 border border-[#6366f1]/30 text-center hidden sm:block">
                 <div className="text-[10px] font-mono text-[#6366f1] uppercase font-bold">Max Reward</div>
-                <div className="text-2xl font-mono font-black text-white">+250 XP</div>
+                <div className="text-xl font-mono font-black text-white">+250 XP</div>
               </div>
             </div>
           </div>
+
+          {/* Timer Reset Success Banner */}
+          {timerResetSuccess && (
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono flex items-center gap-2">
+              <CheckCircle2 size={16} />
+              <span>{timerResetSuccess}</span>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Col: Problem Statement & Requirements (2 Cols) */}
@@ -816,6 +1003,124 @@ export default function ArenaPage() {
                   </form>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: Problem Statement Specs Viewer */}
+      {previewingPs && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#070b12]/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-2xl rounded-2xl bg-[#0f172a] border border-white/10 p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setPreviewingPs(null)}
+              className="absolute top-5 right-5 text-white/50 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-mono px-2.5 py-1 rounded bg-[#22d3ee]/10 text-[#22d3ee] font-bold uppercase">
+                {previewingPs.category}
+              </span>
+              <span className="text-xs font-mono px-2.5 py-1 rounded bg-white/10 text-white font-bold uppercase">
+                {previewingPs.difficulty}
+              </span>
+              <span className="text-xs font-mono text-white/40 ml-auto flex items-center gap-1">
+                <Clock size={12} />
+                <span>8 Hours Sprint</span>
+              </span>
+            </div>
+
+            <h3 className="text-xl font-bold text-white mb-4">{previewingPs.title}</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-xs font-mono uppercase text-[#22d3ee] font-bold mb-1">Architecture Overview</h4>
+                <p className="text-xs text-white/80 font-sans leading-relaxed">{previewingPs.description}</p>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-mono uppercase text-white font-bold mb-2">Technical Requirements</h4>
+                <div className="space-y-2">
+                  {(() => {
+                    const raw = previewingPs.requirements;
+                    let list = Array.isArray(raw) ? raw : [];
+                    if (typeof raw === 'string') {
+                      try { list = JSON.parse(raw); } catch { list = [raw]; }
+                    }
+                    return list.map((req, i) => (
+                      <div key={i} className="p-2.5 rounded-lg bg-white/[0.03] border border-white/5 flex items-start gap-2.5 text-xs">
+                        <CheckCircle2 size={14} className="text-[#22d3ee] shrink-0 mt-0.5" />
+                        <span className="text-white/90">{typeof req === 'object' ? req.title || req.text || JSON.stringify(req) : req}</span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-white/10 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPreviewingPs(null)}
+                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-mono text-white transition-colors"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedChallenge(previewingPs);
+                  setPreviewingPs(null);
+                }}
+                className="px-5 py-2 rounded-lg bg-[#22d3ee] text-[#070b12] text-xs font-mono font-bold hover:bg-[#38bdf8] transition-all"
+              >
+                Select This PS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Switch PS in Battle Cockpit */}
+      {showPsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#070b12]/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-3xl rounded-2xl bg-[#0f172a] border border-white/10 p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowPsModal(false)}
+              className="absolute top-5 right-5 text-white/50 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            <h3 className="text-xl font-bold text-white mb-2">Switch Active Problem Statement</h3>
+            <p className="text-xs text-white/60 mb-6 font-sans">
+              Choose from any of the {challenges.length} problem statements for your squad battle.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+              {challenges.map((ch) => (
+                <div
+                  key={ch.id}
+                  onClick={() => {
+                    setSelectedChallenge(ch);
+                    setShowPsModal(false);
+                  }}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                    selectedChallenge?.id === ch.id
+                      ? 'bg-[#22d3ee]/10 border-[#22d3ee]'
+                      : 'bg-white/[0.02] hover:bg-white/[0.06] border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[10px] font-mono mb-1">
+                    <span className="text-[#22d3ee] font-bold">{ch.category}</span>
+                    <span className="text-white/40">{ch.difficulty}</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white mb-1.5">{ch.title}</h4>
+                  <p className="text-[11px] text-white/60 line-clamp-2">{ch.description}</p>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -13,23 +13,47 @@ const startBattle = async (req, res) => {
       return res.status(400).json({ error: 'BadRequest', message: 'challenge_id is required to start a battle.' });
     }
 
-    // 1. Verify the user is currently in a CONFIRMED team
-    const { data: membership, error: membershipError } = await supabaseAdmin
+    // 1. Check if user is in an existing CONFIRMED team, or auto-create one
+    const { data: membership } = await supabaseAdmin
       .from('team_members')
       .select('team_id, teams(status)')
       .eq('profile_id', userId)
-      .single();
+      .maybeSingle();
 
-    if (membershipError || !membership || membership.teams?.status !== 'CONFIRMED') {
-      return res.status(403).json({ error: 'Forbidden', message: 'You must be in a CONFIRMED team to start a battle.' });
+    let teamId;
+    if (membership && membership.teams?.status === 'CONFIRMED') {
+      teamId = membership.team_id;
+      // Update team's challenge to the selected one
+      await supabaseAdmin.from('teams').update({ challenge_id }).eq('id', teamId);
+    } else {
+      // Auto-create a confirmed team for this engineer so they can jump right into the arena
+      const userName = req.user.profile?.username || (req.user.email ? req.user.email.split('@')[0] : 'Engineer');
+      const { data: newTeam, error: teamCreateErr } = await supabaseAdmin
+        .from('teams')
+        .insert([{
+          name: `${userName}'s Squad`,
+          status: 'CONFIRMED',
+          challenge_id
+        }])
+        .select()
+        .single();
+
+      if (teamCreateErr) throw teamCreateErr;
+      teamId = newTeam.id;
+
+      await supabaseAdmin.from('team_members').upsert({
+        team_id: teamId,
+        profile_id: userId,
+        role_in_team: 'CHALLENGER',
+        consent_status: 'ACCEPTED',
+        responded_at: new Date().toISOString()
+      }, { onConflict: 'team_id,profile_id' });
     }
 
-    const teamId = membership.team_id;
-
-    // 2. Fetch the challenge details to get the time limit
+    // 2. Fetch the challenge details to get the time limit (default 480m / 8hrs)
     const { data: challenge, error: challengeError } = await supabaseAdmin
       .from('challenges')
-      .select('time_limit_minutes')
+      .select('id, title, time_limit_minutes, description, requirements, constraints')
       .eq('id', challenge_id)
       .single();
 
@@ -37,9 +61,10 @@ const startBattle = async (req, res) => {
       return res.status(404).json({ error: 'NotFound', message: 'Challenge not found.' });
     }
 
-    // 3. Calculate the exact deadline (start time + time_limit_minutes)
+    // 3. Calculate the exact deadline: 480 mins (8 hours)
+    const timeLimitMinutes = Number(challenge.time_limit_minutes) || 480;
     const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + challenge.time_limit_minutes * 60000);
+    const endTime = new Date(startTime.getTime() + timeLimitMinutes * 60000);
 
     // 4. Create the active Battle record with required team association and countdown timestamps
     const battlePayload = {
@@ -79,6 +104,73 @@ const startBattle = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/battles/reset-timer
+ * Resets the countdown timer for an active battle to 8 hours (or specified duration)
+ */
+const resetBattleTimer = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { battle_id, hours = 8 } = req.body;
+
+    let targetBattleId = battle_id;
+
+    // If battle_id is not supplied, locate the active battle for the caller's team
+    if (!targetBattleId) {
+      const { data: membership } = await supabaseAdmin
+        .from('team_members')
+        .select('team_id')
+        .eq('profile_id', userId)
+        .maybeSingle();
+
+      if (membership?.team_id) {
+        const { data: activeBattle } = await supabaseAdmin
+          .from('battles')
+          .select('id')
+          .eq('team_id', membership.team_id)
+          .eq('status', 'IN_PROGRESS')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        targetBattleId = activeBattle?.id;
+      }
+    }
+
+    const now = new Date();
+    const durationMinutes = Number(hours) * 60;
+    const endTime = new Date(now.getTime() + durationMinutes * 60000);
+
+    let query = supabaseAdmin
+      .from('battles')
+      .update({
+        start_time: now.toISOString(),
+        end_time: endTime.toISOString(),
+        status: 'IN_PROGRESS'
+      });
+
+    if (targetBattleId) {
+      query = query.eq('id', targetBattleId);
+    } else {
+      query = query.eq('status', 'IN_PROGRESS');
+    }
+
+    const { data: updatedBattles, error: updateErr } = await query.select();
+    if (updateErr) throw updateErr;
+
+    return res.status(200).json({
+      message: `Countdown timer successfully reset to ${hours} hours.`,
+      battle: updatedBattles?.[0] || null,
+      secondsRemaining: durationMinutes * 60,
+      end_time: endTime.toISOString()
+    });
+  } catch (err) {
+    console.error('[ResetBattleTimer Error]:', err.message);
+    return res.status(500).json({ error: 'InternalServerError', message: 'Failed to reset battle timer.' });
+  }
+};
+
 module.exports = {
-  startBattle
+  startBattle,
+  resetBattleTimer
 };

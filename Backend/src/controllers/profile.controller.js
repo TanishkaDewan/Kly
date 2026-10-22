@@ -16,11 +16,40 @@ const getMyProfile = async (req, res) => {
 
     if (profileError && profileError.code !== 'PGRST116') throw profileError;
 
-    if (!profile) {
-      return res.status(404).json({
-        error: 'NotFound',
-        message: 'Profile not found. Please complete profile setup.'
-      });
+    let activeProfile = profile;
+
+    if (!activeProfile) {
+      // Auto-provision profile from auth metadata for newly registered email/password accounts
+      const meta = req.user.user_metadata || {};
+      const fallbackName = meta.username || (req.user.email ? req.user.email.split('@')[0] : `user_${userId.slice(0, 6)}`);
+      
+      const newProfilePayload = {
+        id: userId,
+        username: fallbackName,
+        full_name: meta.full_name || meta.name || fallbackName,
+        github_username: meta.github_username || fallbackName,
+        avatar_url: meta.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${fallbackName}`,
+        experience_level: meta.experience_level || 'INTERMEDIATE',
+        role: 'PLAYER'
+      };
+
+      const { data: createdProfile, error: createProfileErr } = await supabaseAdmin
+        .from('profiles')
+        .upsert(newProfilePayload, { onConflict: 'id' })
+        .select()
+        .single();
+
+      if (!createProfileErr && createdProfile) {
+        activeProfile = createdProfile;
+      } else {
+        console.warn('[GetMyProfile] Profile auto-creation fallback error:', createProfileErr?.message);
+        activeProfile = newProfilePayload;
+      }
+
+      // Ensure user_stats row exists in database
+      await supabaseAdmin
+        .from('user_stats')
+        .upsert({ profile_id: userId, rating: 1000, xp: 0, battles_played: 0, battles_won: 0 }, { onConflict: 'profile_id' });
     }
 
     const { data: userSkills, error: skillsError } = await supabaseAdmin
@@ -40,7 +69,7 @@ const getMyProfile = async (req, res) => {
 
     return res.status(200).json({
       profile: {
-        ...profile,
+        ...activeProfile,
         skills: userSkills ? userSkills.map(s => s.skills) : [],
         stats: stats || { xp: 0, rating: 1000, battles_played: 0, battles_won: 0 }
       }
