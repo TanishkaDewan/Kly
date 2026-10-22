@@ -10,6 +10,7 @@ services:
   - type: web
     name: klyro-ai-service
     runtime: python
+    plan: free
     region: oregon
     rootDir: ai-service
     buildCommand: pip install -r requirements.txt
@@ -32,6 +33,7 @@ services:
   - type: web
     name: klyro-backend
     runtime: node
+    plan: free
     region: oregon
     rootDir: Backend
     buildCommand: npm install
