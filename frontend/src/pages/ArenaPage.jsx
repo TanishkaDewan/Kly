@@ -217,7 +217,7 @@ export default function ArenaPage() {
   // Matchmaking Actions
   const handleStartQueue = async () => {
     if (!user) {
-      openAuthModal('LOGIN');
+      openAuthModal('login');
       return;
     }
     setActionLoading(true);
@@ -289,6 +289,10 @@ export default function ArenaPage() {
   };
 
   const handleStartBattle = async (challengeId) => {
+    if (!user) {
+      openAuthModal('login');
+      return;
+    }
     setActionLoading(true);
     setGeneralError(null);
     try {
@@ -299,7 +303,11 @@ export default function ArenaPage() {
       }
     } catch (err) {
       console.error('Failed to start battle:', err);
-      setGeneralError(err.message || 'Failed to initialize active battle.');
+      if (err.code === 'AUTH_REQUIRED' || err.message?.includes('Authentication required') || err.message?.includes('access token')) {
+        openAuthModal('login');
+      } else {
+        setGeneralError(err.message || 'Failed to initialize active battle.');
+      }
     } finally {
       setActionLoading(false);
     }
@@ -388,14 +396,50 @@ export default function ArenaPage() {
       {generalError && (
         <div className="max-w-3xl mx-auto mb-8 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-between text-red-400">
           <div className="flex items-center gap-3">
-            <AlertCircle size={18} />
+            <AlertCircle size={18} className="shrink-0" />
             <span className="text-sm font-sans">{generalError}</span>
           </div>
+          <div className="flex items-center gap-2">
+            {(!user || String(generalError).toLowerCase().includes('auth') || String(generalError).toLowerCase().includes('token')) && (
+              <button
+                type="button"
+                onClick={() => openAuthModal('login')}
+                className="px-3 py-1 rounded-lg bg-[#22d3ee] text-[#070b12] text-xs font-mono font-bold hover:bg-[#38bdf8] transition-colors shrink-0"
+              >
+                Sign In Now
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setGeneralError(null)}
+              className="text-xs font-mono text-white/60 hover:text-white p-1"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Unauthenticated User Welcome Banner */}
+      {!user && (
+        <div className="max-w-3xl mx-auto mb-8 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#22d3ee]/10 via-[#6366f1]/10 to-transparent border border-[#22d3ee]/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-[#22d3ee]/20 border border-[#22d3ee]/40 flex items-center justify-center text-[#22d3ee] shrink-0">
+              <ShieldCheck size={22} />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-white">Sign In Required to Start Battles</div>
+              <div className="text-xs text-white/60 font-sans">
+                Sign in with your email & password or use a 1-click test squad account to start battles and submit code.
+              </div>
+            </div>
+          </div>
           <button
-            onClick={() => setGeneralError(null)}
-            className="text-xs font-mono text-white/60 hover:text-white"
+            type="button"
+            onClick={() => openAuthModal('login')}
+            className="px-5 py-2 rounded-full bg-[#22d3ee] hover:bg-[#38bdf8] text-[#070b12] text-xs font-jakarta font-bold uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(34,211,238,0.3)] shrink-0"
           >
-            ✕
+            Sign In / Register
           </button>
         </div>
       )}

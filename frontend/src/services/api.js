@@ -32,7 +32,10 @@ export async function apiRequest(endpoint, options = {}, requiresAuth = true) {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     } else {
-      const authError = new Error('Authentication required. Missing Supabase session access token.');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('klyro:auth-required', { detail: { mode: 'login' } }));
+      }
+      const authError = new Error('Authentication required. Please sign in with your email or demo account to proceed.');
       authError.status = 401;
       authError.code = 'AUTH_REQUIRED';
       throw authError;
@@ -50,6 +53,9 @@ export async function apiRequest(endpoint, options = {}, requiresAuth = true) {
     const data = isJson ? await response.json() : await response.text();
 
     if (!response.ok) {
+      if (response.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('klyro:auth-required', { detail: { mode: 'login' } }));
+      }
       const errorMessage = data?.message || data?.error || `HTTP error ${response.status}: ${response.statusText}`;
       const error = new Error(errorMessage);
       error.status = response.status;

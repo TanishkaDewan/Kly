@@ -171,9 +171,17 @@ export function AuthProvider({ children }) {
   };
 
   const openAuthModal = (mode = 'login') => {
-    setAuthMode(mode);
+    setAuthMode(String(mode).toLowerCase() === 'register' ? 'register' : 'login');
     setAuthModalOpen(true);
   };
+
+  useEffect(() => {
+    const handleAuthRequired = (e) => {
+      openAuthModal(e?.detail?.mode || 'login');
+    };
+    window.addEventListener('klyro:auth-required', handleAuthRequired);
+    return () => window.removeEventListener('klyro:auth-required', handleAuthRequired);
+  }, []);
 
   // Backward compatibility alias for existing code calling login()
   const login = (userData) => {
