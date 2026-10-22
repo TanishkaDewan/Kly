@@ -1,0 +1,58 @@
+# ==============================================================================
+# KLYRO — Render Infrastructure-as-Code Blueprint
+# https://render.com/docs/blueprint-spec
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. AI Evaluation Service (FastAPI / Python)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: klyro-ai-service
+    runtime: python
+    region: oregon
+    rootDir: ai-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AI_SERVICE_KEY
+        generateValue: true
+
+  # ----------------------------------------------------------------------------
+  # 2. Main Backend REST API (Express / Node.js)
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: klyro-backend
+    runtime: node
+    region: oregon
+    rootDir: Backend
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AI_SERVICE_URL
+        sync: false
+      - key: AI_SERVICE_KEY
+        fromService:
+          type: web
+          name: klyro-ai-service
+          envVarKey: AI_SERVICE_KEY

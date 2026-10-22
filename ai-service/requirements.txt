@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-dotenv
+requests
+google-genai>=2.0.0,<3
+pytest
+httpx

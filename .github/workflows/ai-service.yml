@@ -1,0 +1,46 @@
+name: AI Service CI
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'ai-service/**'
+      - '.github/workflows/ai-service.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'ai-service/**'
+      - '.github/workflows/ai-service.yml'
+
+jobs:
+  test:
+    name: Run Python Tests
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ai-service
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: ai-service/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run test suite
+        run: pytest tests/
+        env:
+          GITHUB_TOKEN: 'mock_token'
+          GEMINI_API_KEY: 'mock_key'
+          GEMINI_MODEL: 'gemini-2.5-flash'
+          AI_SERVICE_KEY: 'mock_service_key'

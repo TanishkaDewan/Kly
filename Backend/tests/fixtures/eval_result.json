@@ -1,0 +1,27 @@
+{
+  "status": "SUCCESS",
+  "evaluated_at": "2026-10-14T16:46:36.623575+00:00",
+  "model": "gemini-3-flash-preview",
+  "total_score": 72.8,
+  "dimension_scores": [
+    { "dimension": "Technical Quality", "raw_score": 3.8, "weight": 0.20, "dimension_score": 76.0, "weighted_score": 15.2, "rationale": "Good React code" },
+    { "dimension": "Architecture & Engineering", "raw_score": 4.2, "weight": 0.15, "dimension_score": 84.0, "weighted_score": 12.6, "rationale": "Decoupled components" },
+    { "dimension": "Functionality & Completeness", "raw_score": 3.0, "weight": 0.20, "dimension_score": 60.0, "weighted_score": 12.0, "rationale": "Core routes present" },
+    { "dimension": "Innovation & Problem Solving", "raw_score": 3.5, "weight": 0.15, "dimension_score": 70.0, "weighted_score": 10.5, "rationale": "Innovative concept" },
+    { "dimension": "Feasibility & Scalability", "raw_score": 4.0, "weight": 0.15, "dimension_score": 80.0, "weighted_score": 12.0, "rationale": "Scalable stack" },
+    { "dimension": "Documentation & Engineering Process", "raw_score": 3.5, "weight": 0.15, "dimension_score": 70.0, "weighted_score": 10.5, "rationale": "Good README" }
+  ],
+  "requirements_evaluation": [
+    { "requirement": "React Router routes", "status": "MET", "evidence": "App.jsx", "justification": "Routes exist" },
+    { "requirement": "Cockpit submission", "status": "NOT_VERIFIABLE", "evidence": "App.jsx", "justification": "Source omitted" },
+    { "requirement": "AuthContext provider", "status": "MET", "evidence": "AuthContext.jsx", "justification": "Provider wraps App" }
+  ],
+  "feedback_summary": "KLYRO shows strong architectural foundation.",
+  "strengths": ["Clean idiomatic React"],
+  "weaknesses": ["Low commit count"],
+  "recommendations": ["Add unit tests"],
+  "suspicious_flags": [],
+  "contributions": [
+    { "github_username": "Siddhantpatil3158", "estimated_percentage": 100.0, "evidence": ["4 commits"] }
+  ]
+}
